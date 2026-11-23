@@ -1,0 +1,10 @@
+# versions used to build and test the benchmark (November 2026)
+numpy==2.5.3
+scipy==1.18.1
+cvxpy==1.9.3
+clarabel==0.11.1
+gymnasium[box2d]==1.4.0
+pillow==12.3.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0
+stable-baselines3==2.9.2
