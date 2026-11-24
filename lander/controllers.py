@@ -180,8 +180,8 @@ class CascadeController:
             return self._fallback(s)
         return self._track(s)
 
-    # ------------------------------------------------------------------ tracking and attitude
-    def _reference(self, s):
+    # ----------------------------------------------------------------- tracking and attitude
+    def _reference(self, s): 
         """Planned position, velocity and thrust acceleration at the current time (ZOH interpolation)."""
         P = self.plan
         t = self.k_since / 50
