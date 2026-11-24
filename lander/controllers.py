@@ -79,12 +79,67 @@ class CascadeController:
 
     def _search(self, s, refine=6):
         """Time-to-go search: coarse grid, then golden section around the best grid point (Question 3)."""
-        # TODO (Question 4): time-to-go search as in solve_min_fuel (Question 3.1): the fuel of self._solve(s, t) (None = infeasible or not certified) on the grid self.tgo_grid, then `refine` golden-section steps around the best grid point; then solve the best plan again with a time-to-go self.tgo_margin times longer (keep the best plan if this fails); return the plan (dict) or None
-        raise NotImplementedError("Question 4")
+        # Question 4(i): minimum-fuel search on a fixed time-to-go grid.
+        # A failed (infeasible or non-certified) SOCP has cost +infinity.
+        grid = np.sort(np.asarray(self.tgo_grid, dtype=float))
+        if grid.size == 0:
+            return None
+        evaluated = {}
+        best_plan, best_fuel = None, np.inf
+
+        def fuel_at(tgo):
+            nonlocal best_plan, best_fuel
+            tgo = float(tgo)
+            if tgo not in evaluated:
+                plan = self._solve(s, tgo, certify=True)
+                cost = float(plan["sol"].fuel) if plan is not None else np.inf
+                evaluated[tgo] = cost
+                if cost < best_fuel:
+                    best_plan, best_fuel = plan, cost
+            return evaluated[tgo]
+
+        for tgo in grid:
+            fuel_at(tgo)
+        if best_plan is None:
+            return None
+
+        # Bracket the best coarse point using both neighboring grid values.
+        j = int(np.argmin([evaluated[float(t)] for t in grid]))
+        left = float(grid[max(j - 1, 0)])
+        right = float(grid[min(j + 1, len(grid) - 1)])
+        if right > left:
+            ratio = (np.sqrt(5.0) - 1.0) / 2.0
+            c = right - ratio * (right - left)
+            d = left + ratio * (right - left)
+            fc, fd = fuel_at(c), fuel_at(d)
+            for _ in range(max(0, int(refine))):
+                if fc <= fd:
+                    right, d, fd = d, c, fc
+                    c = right - ratio * (right - left)
+                    fc = fuel_at(c)
+                else:
+                    left, c, fc = c, d, fd
+                    d = left + ratio * (right - left)
+                    fd = fuel_at(d)
+
+        # The optimal point-mass time leaves no allowance for body rotations:
+        # re-solve with the requested 10% longer flight horizon.
+        # Retain the best certified plan if the longer horizon is infeasible.
+        margin_plan = self._solve(s, self.tgo_margin * best_plan["tgo"], certify=True)
+        return margin_plan if margin_plan is not None else best_plan
 
     def _replan(self, s):
-        # TODO (Question 4): if there is a previous plan and its remaining time tgo = plan['tgo'] - self.k_since / 50 is above 0.6 s, return the first plan found by self._solve(s, f * tgo, certify=False) for f = 1.0, 1.15, 1.3; otherwise (or if all three fail) return a new search self._search(s)
-        raise NotImplementedError("Question 4")
+        # Question 4(ii): shrinking-horizon MPC, re-solving from the measured state.
+        # During replanning we permit small relaxation gaps (certify=False).
+        if self.plan is not None:
+            remaining = self.plan["tgo"] - self.k_since / 50.0
+            if remaining > 0.6:
+                for factor in (1.0, 1.15, 1.30):
+                    plan = self._solve(s, factor * remaining, certify=False)
+                    if plan is not None:
+                        return plan
+        # No viable previous horizon: search again from scratch.
+        return self._search(s)
 
     # ------------------------------------------------------------------ main entry
     def act(self, obs, info=None):
@@ -141,8 +196,9 @@ class CascadeController:
     def _track(self, s):
         i, p_ref, v_ref, a = self._reference(s)
         self.log["track_err"].append(float(np.linalg.norm(p_ref - s[:2])))
-        # TODO (Question 4): tracking law a_cmd = u_plan + Kp (r_ref - r) + Kd (v_ref - v), with u_plan = a, the reference (p_ref, v_ref) and the gains self.kp_trk, self.kd_trk
-        raise NotImplementedError("Question 4")
+        # Question 4(iii): translation PD tracking, using the ZOH-interpolated
+        # SOCP trajectory and the measured position and velocity in SI units.
+        a_cmd = a + self.kp_trk * (p_ref - s[:2]) + self.kd_trk * (v_ref - s[2:4])
         theta_ff = None
         if not self.hover_possible and np.linalg.norm(a) < 0.5 * self.a_min(s[6]):
             nxt = [k for k in range(i, self.N) if np.linalg.norm(self.plan["a"][k]) > 1e-3]
