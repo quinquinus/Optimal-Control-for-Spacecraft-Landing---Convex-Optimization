@@ -322,5 +322,43 @@ def solve_min_fuel(prob, x0, m0=None, n_grid=25, tol=0.02, certify=True):
 def solve_min_landing_error(p, x0, m0=None, N=40, g=-10.0, n_grid=25, tol=0.02, certify=True, **kw):
     """Two-stage guidance of Blackmore et al. (2010) for targets that cannot be reached:
     stage 1 finds d* = min over tgo of the landing error; stage 2 minimizes the fuel with error <= d*."""
-    # TODO (Question 3.2): stage 1: LanderSOCP with mode='error' and the same search as solve_min_fuel (landing error instead of fuel); stage 2: LanderSOCP with mode='fuel_with_error_bound', dmax = d_star + 1 mm, solved at the best tgo; return (solution, d_star, sorted list of (tgo, error))
-    raise NotImplementedError("Question 3.2")
+    m0 = p.m_wet if m0 is None else m0
+    # Stage 1: minimize horizontal miss distance, searching over flight time.
+    prob = LanderSOCP(p, N, g, mode="error", **kw)
+    tmin, tmax = tgo_bounds(p, x0, m0)
+    evaluations = {}
+    solutions = {}
+
+    def objective(t):
+        t = float(t)
+        if t not in evaluations:
+            sol = prob.solve(x0, t, m0)
+            if sol is None or (certify and not is_lossless(sol)):
+                evaluations[t] = np.inf
+            else:
+                evaluations[t] = sol.landing_error
+                solutions[t] = sol
+        return evaluations[t]
+
+    if tmax < tmin or n_grid < 2:
+        return None, np.inf, []
+    grid = np.linspace(tmin, tmax, n_grid)
+    values = np.array([objective(t) for t in grid])
+    if not np.isfinite(values).any():
+        return None, np.inf, sorted(evaluations.items())
+    i = int(np.argmin(values))
+    a, b = grid[max(0, i-1)], grid[min(n_grid-1, i+1)]
+    if b > a:
+        golden_section(objective, a, b, tol=tol)
+    # Retain the best of ALL evaluations, including the coarse grid.
+    tstar = min(solutions, key=lambda t: evaluations[t])
+    d_star = evaluations[tstar]
+
+    # Stage 2: minimize fuel at the best time, allowing a 1 mm margin.
+    fuel_prob = LanderSOCP(p, N, g, mode="fuel_with_error_bound", **kw)
+    fuel_prob.dmax.value = d_star + 0.001
+    sol = fuel_prob.solve(x0, tstar, m0)
+    if sol is not None and certify and not is_lossless(sol):
+        sol = None
+    return sol, d_star, sorted(evaluations.items())
+
