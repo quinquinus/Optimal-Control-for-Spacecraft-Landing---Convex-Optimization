@@ -109,10 +109,11 @@ class LanderSOCP:
         # drift caused by a known horizontal wind on each interval (Phase 3); zero unless solve() receives a wind
         drift_v = cp.reshape(self.dvx, (N, 1), order="C") @ e1      # rows (dt w_k, 0)
         drift_r = cp.reshape(self.dpx, (N, 1), order="C") @ e1      # rows (dt^2/2 w_k, 0)
+        # TODO (Question 3.1): the list `cons`: initial state (self.x0, self.zinit); dynamics of Question 2.1 written with `acc`, `drift_v`, `drift_r`; relaxation ||u_k|| <= sigma_k; Taylor bounds (with the variable `dz` = z - z0, which keeps the problem DPP); mass bounds zlo <= z <= zhi and z_N >= ln(m_dry); tilt cone; glide slope y_k - y_N >= tan(gamma) |x_k - x_N| for k = glide_from, ..., N. Then the fuel expression `fuel` = dt * sum(sigma)
         cons = [
 
             z[0] == self.zinit, r[0, :] == self.x0[:2], v[0, :] == self.x0[2:], #initial state
-            
+
             v[1:] == v[:-1] + self.dt * acc + drift_v,
             r[1:] == r[:-1] + self.dt * v[:-1] + 0.5 * self.dt2 * acc + drift_r,
             z[1:] == z[:-1] - self.adt * s,
@@ -138,11 +139,13 @@ class LanderSOCP:
 
         err = cp.abs(r[N, 0] - self.xt)              # horizontal landing error |x_N - x_target| (the target is 0)
         if terminal == "ground":
+            # TODO (Question 3.1): touchdown at rest, y_N = 0 and v_N = 0 (append them to `cons`)
             cons += [r[N, 1] == 0.0, v[N] == 0.0]
         else:                                        # approach gate above the pad (provided; used from Question 4 on)
             cons += [r[N, 1] == y_gate, v[N, 0] == 0.0, v[N, 1] == -v_gate]
         if mode == "fuel":
             if terminal == "ground":
+                # TODO (Question 3.1): land at the target, x_N = x_target (`self.xt`, which is 0) (append it to `cons`)
                  cons += [r[N, 0] == self.xt]
             else:
                 cons += [err <= x_tol]
@@ -190,7 +193,17 @@ class LanderSOCP:
         t = np.arange(N + 1) * dt
         rho1, rho2 = p.rho1, self.thrust_frac * p.rho2
         # TODO (Question 3.1): set the values of every horizon-dependent parameter: dt, dt2 (= dt^2), adt (= alpha dt), z0, a1, a2, zlo, zhi at the times t_k (use the local rho1, rho2: rho2 includes the factor thrust_frac)
-        raise NotImplementedError("Question 3.1")
+        self.dt.value = dt
+        self.dt2.value = dt * dt
+        self.adt.value = p.alpha * dt
+        m_low = np.maximum(m0 - p.alpha * rho2 * t, 1e-6)
+        m_high = m0 - p.alpha * rho1 * t
+        self.z0.value = np.log(m_low[:N])
+        self.a1.value = rho1 * np.exp(-self.z0.value)
+        self.a2.value = rho2 * np.exp(-self.z0.value)
+        self.zlo.value = np.log(m_low)
+        self.zhi.value = np.log(m_high)
+
         self.zinit.value = np.log(m0)
         return t
 
