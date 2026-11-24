@@ -21,7 +21,6 @@ import cvxpy as cp
 
 from .params import P as PARAMS
 
-
 @dataclass
 class LanderSolution:
     status: str
@@ -110,18 +109,41 @@ class LanderSOCP:
         # drift caused by a known horizontal wind on each interval (Phase 3); zero unless solve() receives a wind
         drift_v = cp.reshape(self.dvx, (N, 1), order="C") @ e1      # rows (dt w_k, 0)
         drift_r = cp.reshape(self.dpx, (N, 1), order="C") @ e1      # rows (dt^2/2 w_k, 0)
-        # TODO (Question 3.1): the list `cons`: initial state (self.x0, self.zinit); dynamics of Question 2.1 written with `acc`, `drift_v`, `drift_r`; relaxation ||u_k|| <= sigma_k; Taylor bounds (with the variable `dz` = z - z0, which keeps the problem DPP); mass bounds zlo <= z <= zhi and z_N >= ln(m_dry); tilt cone; glide slope y_k - y_N >= tan(gamma) |x_k - x_N| for k = glide_from, ..., N. Then the fuel expression `fuel` = dt * sum(sigma)
-        raise NotImplementedError("Question 3.1")
+        cons = [
+
+            z[0] == self.zinit, r[0, :] == self.x0[:2], v[0, :] == self.x0[2:], #initial state
+            
+            v[1:] == v[:-1] + self.dt * acc + drift_v,
+            r[1:] == r[:-1] + self.dt * v[:-1] + 0.5 * self.dt2 * acc + drift_r,
+            z[1:] == z[:-1] - self.adt * s,
+
+            cp.norm(u, 2, axis=1) <= s, #relaxation
+
+            dz == z[:-1] - self.z0,
+            cp.multiply(self.a1, 1 - dz + 0.5 * cp.square(dz)) <= s,
+            s <= cp.multiply(self.a2, 1 - dz),
+
+            z >= self.zlo,
+            z <= self.zhi,
+            z[N] >= np.log(p.m_dry),
+
+            u[:, 1] >= np.cos(np.radians(theta_max_deg)) * s,
+        ]
+        # glide-slope
+        dx = r[glide_from:, 0] - r[N, 0]
+        dy = r[glide_from:, 1] - r[N, 1]
+        self.glide = [dy >= self.tg * dx, dy >= -self.tg * dx]   # |dx| tan(gamma) <= dy
+        cons += self.glide
+        fuel = self.dt * cp.sum(s)
+
         err = cp.abs(r[N, 0] - self.xt)              # horizontal landing error |x_N - x_target| (the target is 0)
         if terminal == "ground":
-            # TODO (Question 3.1): touchdown at rest, y_N = 0 and v_N = 0 (append them to `cons`)
-            raise NotImplementedError("Question 3.1")
+            cons += [r[N, 1] == 0.0, v[N] == 0.0]
         else:                                        # approach gate above the pad (provided; used from Question 4 on)
             cons += [r[N, 1] == y_gate, v[N, 0] == 0.0, v[N, 1] == -v_gate]
         if mode == "fuel":
             if terminal == "ground":
-                # TODO (Question 3.1): land at the target, x_N = x_target (`self.xt`, which is 0) (append it to `cons`)
-                raise NotImplementedError("Question 3.1")
+                 cons += [r[N, 0] == self.xt]
             else:
                 cons += [err <= x_tol]
             obj = fuel
