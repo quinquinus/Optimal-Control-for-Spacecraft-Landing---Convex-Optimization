@@ -1,0 +1,11 @@
+Stage 1 minimum miss distance: 2.496113224 m
+Flight time: 3.649066977 s
+Stage 2 miss distance: 2.497113228 m
+Fuel used: 169.993406 g
+Fuel remaining: 0.006594 g
+Lossless: True
+Maximum relative gap: 5.52362485e-08
+Simulated position error from planned touchdown: 1.14159942e-11 m
+Simulated terminal speed: 2.27791739e-12 m/s
+Thrust violation: 0.0338622437 N
+Glide-slope violation: 0.0022462452 m

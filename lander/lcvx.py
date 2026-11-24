@@ -151,11 +151,10 @@ class LanderSOCP:
                 cons += [err <= x_tol]
             obj = fuel
         elif mode == "error":
-            # TODO (Question 3.2): the objective `obj`, the landing error `err`
-            raise NotImplementedError("Question 3.2")
+            obj = err
         elif mode == "fuel_with_error_bound":
-            # TODO (Question 3.2): the objective `obj` (the fuel) and the bound `err` <= `self.dmax` (append it to `cons`)
-            raise NotImplementedError("Question 3.2")
+            cons += [err <= self.dmax]
+            obj = fuel
         else:
             raise ValueError(mode)
         # ---------------- extensions used in Question 5 (hazards, trust region, approach cone, map)
