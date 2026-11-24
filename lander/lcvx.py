@@ -289,7 +289,35 @@ def solve_min_fuel(prob, x0, m0=None, n_grid=25, tol=0.02, certify=True):
     With certify=True, a solution whose relaxation gap is not zero counts as infeasible: we search
     over CERTIFIED (lossless) solutions only. Returns (best LanderSolution or None, evaluations)."""
     # TODO (Question 3.1): coarse grid of n_grid points on tgo_bounds, then golden_section around the best grid point; with certify=True, a tgo whose solution fails is_lossless counts as infeasible (infinite fuel); return (best solution or None, sorted list of (tgo, fuel))
-    raise NotImplementedError("Question 3.1")
+    m0 = prob.p.m_wet if m0 is None else m0
+    t_min, t_max = tgo_bounds(prob.p, x0, m0)
+    evals = {}          # tgo -> carburant (inf si infaisable ou non certifié)
+    best = None         # meilleure solution vue jusqu'ici
+
+    def cost(tgo):
+        nonlocal best
+        sol = prob.solve(x0, tgo, m0)
+        if sol is None or (certify and not is_lossless(sol)):
+            f = np.inf                                   # infaisable, ou relaxation pas exacte
+        else:
+            f = sol.fuel
+            if best is None or f < best.fuel:
+                best = sol                               # garder la meilleure (prob ne garde que le dernier solve)
+        evals[float(tgo)] = f
+        return f
+
+    # 1) grille grossière sur [t_min, t_max]
+    grid = np.linspace(t_min, t_max, n_grid)
+    vals = np.array([cost(t) for t in grid])
+    if not np.isfinite(vals).any():
+        return None, sorted(evals.items())               # aucun tgo faisable (ex. cas B)
+
+    # 2) golden section entre les deux voisins du meilleur point de la grille
+    i = int(np.argmin(vals))
+    a, b = grid[max(i - 1, 0)], grid[min(i + 1, n_grid - 1)]
+    golden_section(cost, a, b, tol=tol)
+
+    return best, sorted(evals.items())
 
 
 def solve_min_landing_error(p, x0, m0=None, N=40, g=-10.0, n_grid=25, tol=0.02, certify=True, **kw):
